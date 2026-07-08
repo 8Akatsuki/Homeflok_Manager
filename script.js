@@ -111,7 +111,99 @@ function saveDB() {
     console.error('Save failed', e);
     showToast('Storage full — try removing old photos');
   }
+  pushToCloud();
 }
+
+function saveDBLocalOnly() {
+  try { localStorage.setItem(DB_KEY, JSON.stringify(DB)); } catch (e) { /* ignore */ }
+}
+
+/* ---------------------------- CLOUD SYNC (Supabase) ---------------------------- */
+const SUPABASE_URL = 'https://njazxnkquxeldbxpvyeg.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5qYXp4bmtxdXhlbGRieHB2eWVnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODM1MjM4NTQsImV4cCI6MjA5OTA5OTg1NH0.2N2iZFgzfBDpOpn_uLqMdBFV3rnhNuVN6rcAqEgPZPk';
+// Shared "room" both devices write to. Keep this the same string on every device that should sync together.
+const ROOM_CODE = 'homefolk-joseph-thrift-main';
+
+let sb = null;
+try {
+  if (window.supabase && typeof window.supabase.createClient === 'function') {
+    sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  }
+} catch (e) {
+  console.warn('Supabase client failed to initialise — app will run offline-only.', e);
+}
+
+const DEVICE_ID = (() => {
+  let id = localStorage.getItem('homefolk_device_id');
+  if (!id) { id = uid() + uid(); localStorage.setItem('homefolk_device_id', id); }
+  return id;
+})();
+
+let syncStatus = sb ? 'connecting' : 'unavailable'; // connecting | synced | offline | unavailable
+let pushTimer = null;
+
+function pushToCloud() {
+  if (!sb) return;
+  clearTimeout(pushTimer);
+  pushTimer = setTimeout(async () => {
+    try {
+      const payload = Object.assign({}, DB, { _syncMeta: { deviceId: DEVICE_ID, ts: Date.now() } });
+      const { error } = await sb.from('homefolk_sync').upsert({
+        room_code: ROOM_CODE, data: payload, updated_at: new Date().toISOString()
+      });
+      if (error) throw error;
+      syncStatus = 'synced';
+      localStorage.setItem('homefolk_last_sync_at', new Date().toISOString());
+    } catch (e) {
+      console.warn('Cloud push failed', e);
+      syncStatus = 'offline';
+    }
+    if (currentView === 'settings') refreshView();
+  }, 600);
+}
+
+async function pullFromCloud() {
+  if (!sb) return;
+  try {
+    const { data, error } = await sb.from('homefolk_sync').select('data, updated_at').eq('room_code', ROOM_CODE).maybeSingle();
+    if (error) throw error;
+    if (data && data.data) {
+      DB = Object.assign(defaultDB(), data.data);
+      saveDBLocalOnly();
+      localStorage.setItem('homefolk_last_sync_at', new Date().toISOString());
+    } else {
+      // No shared record yet on this room — seed the cloud with whatever is on this device
+      pushToCloud();
+    }
+    syncStatus = 'synced';
+  } catch (e) {
+    console.warn('Cloud pull failed — continuing with local data only.', e);
+    syncStatus = 'offline';
+  }
+}
+
+function subscribeRealtime() {
+  if (!sb) return;
+  sb.channel('homefolk-sync-changes')
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'homefolk_sync', filter: `room_code=eq.${ROOM_CODE}` }, (payload) => {
+      const incoming = payload.new && payload.new.data;
+      if (!incoming) return;
+      if (incoming._syncMeta && incoming._syncMeta.deviceId === DEVICE_ID) return; // our own change echoing back
+      DB = Object.assign(defaultDB(), incoming);
+      saveDBLocalOnly();
+      localStorage.setItem('homefolk_last_sync_at', new Date().toISOString());
+      syncStatus = 'synced';
+      if (isAuthed()) {
+        refreshView();
+        showToast('Updated by your teammate');
+      }
+    })
+    .subscribe((status) => {
+      if (status === 'SUBSCRIBED') { syncStatus = 'synced'; }
+    });
+}
+
+if (sb) subscribeRealtime();
 
 /* ---------------------------- CATEGORY / CONST LISTS ---------------------------- */
 const CATEGORIES = ['Saree','Kurti','Tops','Shirts','Jeans','Dresses','Jackets','Traditional Wear','Western Wear','Accessories','Others'];
@@ -1293,6 +1385,10 @@ function expenseAddModal() {
    SETTINGS & BACKUP
    ============================================================ */
 VIEW_RENDERERS.settings = function renderSettings() {
+  const lastSync = localStorage.getItem('homefolk_last_sync_at');
+  const statusLabel = { synced: 'Synced', connecting: 'Connecting…', offline: 'Offline — showing local data', unavailable: 'Not set up' }[syncStatus] || 'Unknown';
+  const statusTag = { synced: 'tag-olive', connecting: 'tag-gold', offline: 'tag-rust', unavailable: 'tag-neutral' }[syncStatus] || 'tag-neutral';
+
   return `
     <p class="view-eyebrow">· Settings ·</p>
     <h1 class="view-title">Settings &amp; Backup</h1>
@@ -1300,7 +1396,16 @@ VIEW_RENDERERS.settings = function renderSettings() {
 
     <div class="card section-block">
       <p style="font-weight:500;margin-bottom:4px;">Homefolk Manager</p>
-      <p class="field-hint">Runs fully offline in this browser. All data is stored locally on this device only — nothing is sent anywhere.</p>
+      <p class="field-hint">Runs offline in this browser, with changes synced to your teammate when online.</p>
+    </div>
+
+    <p class="view-eyebrow">Cloud Sync</p>
+    <div class="card section-block">
+      <div class="list-row" style="border:none;padding-bottom:6px;">
+        <div class="list-main">Status</div>
+        <span class="tag ${statusTag}">${statusLabel}</span>
+      </div>
+      <p class="field-hint">${lastSync ? 'Last synced ' + formatDate(lastSync) : 'Not yet synced with your teammate.'}</p>
     </div>
 
     <p class="view-eyebrow">Backup Your Data</p>
@@ -1617,10 +1722,12 @@ window.addEventListener('popstate', (e) => {
 /* ============================================================
    INIT
    ============================================================ */
-function enterApp() {
+async function enterApp() {
   const lastView = localStorage.getItem(LAST_VIEW_KEY) || 'home';
   history.replaceState({ view: lastView }, '', '#' + lastView);
   navigate(lastView, { skipPush: true });
+  await pullFromCloud();
+  refreshView();
 }
 
 // Deploy-proof brand assets: set from embedded base64 so a missing/misnamed
