@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Homefolk Manager</title>
+<meta name="theme-color" content="#F0E6D8">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="assets/logo.jpg" id="favicon-link">
+<link rel="apple-touch-icon" href="assets/logo.jpg" id="touch-icon-link">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,500;0,600;0,700;1,500&family=Jost:wght@300;400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div id="toast" class="toast"></div>
+
+<!-- ============ AUTH OVERLAY (cover + login) ============ -->
+<div id="auth-root" class="auth-root hidden"></div>
+
+<!-- ============ HEADER ============ -->
+<header class="app-header" id="app-header">
+  <div class="header-inner">
+    <button class="header-icon-btn hidden" id="back-btn" aria-label="Back">‹</button>
+    <img src="assets/logo.jpg" alt="Homefolk" class="header-logo" id="header-logo-img">
+    <div class="header-text">
+      <span class="header-title">Homefolk Manager</span>
+      <span class="header-sub">Curated Thrift &amp; Vintage Pieces</span>
+    </div>
+    <button class="header-icon-btn" id="refresh-btn" aria-label="Refresh">↻</button>
+  </div>
+</header>
+
+<!-- ============ MAIN VIEW CONTAINER ============ -->
+<main id="view-root" class="view-root"></main>
+
+<!-- ============ MODAL ROOT ============ -->
+<div id="modal-root"></div>
+
+<!-- ============ MORE SHEET ============ -->
+<div id="more-sheet" class="sheet-overlay hidden">
+  <div class="sheet">
+    <div class="sheet-handle"></div>
+    <p class="sheet-eyebrow">· More ·</p>
+    <div class="sheet-grid">
+      <button class="sheet-item" data-view="cashflow">
+        <span class="sheet-icon">◈</span> Cash Flow
+      </button>
+      <button class="sheet-item" data-view="profit">
+        <span class="sheet-icon">◆</span> Profit Analysis
+      </button>
+      <button class="sheet-item" data-view="stock">
+        <span class="sheet-icon">↻</span> Stock Movement
+      </button>
+      <button class="sheet-item" data-view="payments">
+        <span class="sheet-icon">✦</span> Payment Tracking
+      </button>
+      <button class="sheet-item" data-view="expenses">
+        <span class="sheet-icon">◇</span> Expenses
+      </button>
+      <button class="sheet-item" data-view="settings">
+        <span class="sheet-icon">⚙</span> Settings &amp; Backup
+      </button>
+      <button class="sheet-item" data-view="mydata">
+        <span class="sheet-icon">⬇</span> Download My Data
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ BOTTOM NAV ============ -->
+<nav class="bottom-nav">
+  <button class="nav-btn active" data-view="home">
+    <span class="nav-icon">⌂</span><span>Home</span>
+  </button>
+  <button class="nav-btn" data-view="closet">
+    <span class="nav-icon">✧</span><span>Closet</span>
+  </button>
+  <button class="nav-btn" data-view="inventory">
+    <span class="nav-icon">▤</span><span>Inventory</span>
+  </button>
+  <button class="nav-btn" data-view="sales">
+    <span class="nav-icon">₹</span><span>Sales</span>
+  </button>
+  <button class="nav-btn" id="more-btn">
+    <span class="nav-icon">⋯</span><span>More</span>
+  </button>
+</nav>
+
+<script src="script.js"></script>
+</body>
+</html>
