@@ -1,4 +1,4 @@
-const CACHE_NAME = 'homefolk-cache-v2';
+const CACHE_NAME = 'homefolk-cache-v3';
 const ASSETS = [
   './',
   './index.html',
@@ -24,18 +24,31 @@ self.addEventListener('activate', (event) => {
   self.clients.claim();
 });
 
+// Network-first for the app shell (html/css/js) so a new deploy is always picked
+// up immediately. Falls back to cache only when there's no network at all.
+// Cache-first only for the logo image, which almost never changes.
 self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
+  const url = event.request.url;
+
+  if (url.includes('/assets/logo.jpg')) {
+    event.respondWith(
+      caches.match(event.request).then((cached) => cached || fetch(event.request).then((res) => {
+        const copy = res.clone();
+        caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
+        return res;
+      }))
+    );
+    return;
+  }
+
   event.respondWith(
-    caches.match(event.request).then((cached) => {
-      if (cached) return cached;
-      return fetch(event.request)
-        .then((response) => {
-          const copy = response.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
-          return response;
-        })
-        .catch(() => cached);
-    })
+    fetch(event.request)
+      .then((response) => {
+        const copy = response.clone();
+        caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
+        return response;
+      })
+      .catch(() => caches.match(event.request))
   );
 });

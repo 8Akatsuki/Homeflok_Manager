@@ -165,13 +165,46 @@ function pushToCloud() {
   }, 600);
 }
 
+// Union-merge by id across every collection — safe by construction: it can
+// only ever add records back in, never silently drop ones that exist locally.
+// (Trade-off: a deliberate delete on one device can be "resurrected" if the
+// other device still has it locally and hasn't synced that delete yet.)
+function mergeDB(local, remote) {
+  const merged = defaultDB();
+  const collections = ['products', 'sales', 'expenses', 'cashTx', 'payments', 'stockMoves'];
+  collections.forEach((key) => {
+    const map = new Map();
+    (remote[key] || []).forEach((item) => { if (item && item.id) map.set(item.id, item); });
+    (local[key] || []).forEach((item) => { if (item && item.id) map.set(item.id, item); }); // local wins on same-id conflicts
+    merged[key] = Array.from(map.values());
+  });
+  return merged;
+}
+
+function dbRecordCount(db) {
+  return (db.products || []).length + (db.sales || []).length + (db.expenses || []).length + (db.cashTx || []).length;
+}
+
 async function pullFromCloud() {
   if (!sb) return;
   try {
     const { data, error } = await sb.from('homefolk_sync').select('data, updated_at').eq('room_code', ROOM_CODE).maybeSingle();
     if (error) throw error;
     if (data && data.data) {
-      DB = Object.assign(defaultDB(), data.data);
+      const remote = data.data;
+      const localHasData = dbRecordCount(DB) > 0;
+      const remoteHasData = dbRecordCount(remote) > 0;
+      if (!localHasData) {
+        // this device is empty (fresh install/reinstall) — safe to fully adopt the cloud copy
+        DB = Object.assign(defaultDB(), remote);
+      } else if (!remoteHasData) {
+        // cloud is behind/empty — keep what's on this device and push it up
+        pushToCloud();
+      } else {
+        // both sides have records — merge instead of picking a winner, then reconcile the cloud
+        DB = mergeDB(DB, remote);
+        pushToCloud();
+      }
       saveDBLocalOnly();
       localStorage.setItem('homefolk_last_sync_at', new Date().toISOString());
     } else {
@@ -192,7 +225,7 @@ function subscribeRealtime() {
       const incoming = payload.new && payload.new.data;
       if (!incoming) return;
       if (incoming._syncMeta && incoming._syncMeta.deviceId === DEVICE_ID) return; // our own change echoing back
-      DB = Object.assign(defaultDB(), incoming);
+      DB = mergeDB(DB, incoming);
       saveDBLocalOnly();
       localStorage.setItem('homefolk_last_sync_at', new Date().toISOString());
       syncStatus = 'synced';
@@ -481,7 +514,9 @@ VIEW_RENDERERS.inventory = function renderInventory() {
           <div class="list-value">${formatINR(p.sellPrice)}</div>
           <div class="list-value small">cost ${formatINR(p.boughtPrice)}</div>
         </div>
-        <button class="inv-edit-btn" data-edit-product="${p.id}" aria-label="Edit">✎</button>
+        ${p.qty > 0
+          ? `<button class="inv-edit-btn" data-edit-product="${p.id}" aria-label="Edit">✎</button>`
+          : `<button class="inv-edit-btn inv-delete-btn" data-delete-product="${p.id}" aria-label="Delete">🗑</button>`}
       </div>
     `).join('') : `
       <div class="empty-state">
@@ -641,8 +676,19 @@ function productFormModal(existing) {
   });
 }
 
+function deleteProductWithConfirm(p) {
+  if (confirm(`Delete "${p.name}"? This cannot be undone.`)) {
+    DB.products = DB.products.filter(x => x.id !== p.id);
+    saveDB();
+    closeModal();
+    refreshView();
+    showToast('Product deleted');
+  }
+}
+
 function productDetailModal(p) {
   const salesHistory = DB.sales.filter(s => s.items.some(i => i.productId === p.id));
+  const soldOut = p.qty <= 0;
   openModal(`
     <div class="modal-header">
       <span class="modal-title">${escapeHtml(p.name)}</span>
@@ -669,11 +715,17 @@ function productDetailModal(p) {
       `).join('') : `<p class="field-hint">Not sold yet.</p>`}
     </div>
     <div class="modal-footer">
-      <button class="btn btn-outline btn-block" id="detail-edit-btn">Edit Product</button>
+      ${soldOut
+        ? `<button class="btn btn-danger btn-block" id="detail-delete-btn">Delete Product</button>`
+        : `<button class="btn btn-outline btn-block" id="detail-edit-btn">Edit Product</button>`}
     </div>
   `, { center: true });
   document.querySelector('[data-close]').addEventListener('click', closeModal);
-  document.getElementById('detail-edit-btn').addEventListener('click', () => { closeModal(); productFormModal(p); });
+  if (soldOut) {
+    document.getElementById('detail-delete-btn').addEventListener('click', () => deleteProductWithConfirm(p));
+  } else {
+    document.getElementById('detail-edit-btn').addEventListener('click', () => { closeModal(); productFormModal(p); });
+  }
 }
 
 /* ============================================================
@@ -1495,6 +1547,13 @@ function attachViewHandlers(view) {
       e.stopPropagation();
       const p = getProduct(el.dataset.editProduct);
       if (p) productFormModal(p);
+    });
+  });
+  VIEW_ROOT.querySelectorAll('[data-delete-product]').forEach(el => {
+    el.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const p = getProduct(el.dataset.deleteProduct);
+      if (p) deleteProductWithConfirm(p);
     });
   });
   VIEW_ROOT.querySelectorAll('[data-open-sale]').forEach(el => {
