@@ -62,6 +62,12 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   z-index:50;
   display:flex; align-items:center;
 }
+#refresh-btn{
+  position:absolute; top:50%; right:10px; transform:translateY(-50%);
+  margin-left:0; font-size:16px;
+}
+#refresh-btn.spin{ animation:spin 0.5s linear; }
+@keyframes spin{ from{transform:translateY(-50%) rotate(0deg);} to{transform:translateY(-50%) rotate(360deg);} }
 .header-inner{
   display:flex; align-items:center; gap:10px;
   padding:0 14px;
@@ -72,9 +78,6 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   display:flex; align-items:center; justify-content:center; flex-shrink:0;
 }
 .header-icon-btn.hidden{ visibility:hidden; }
-#refresh-btn{ margin-left:auto; font-size:16px; }
-#refresh-btn.spin{ animation:spin 0.5s linear; }
-@keyframes spin{ from{transform:rotate(0deg);} to{transform:rotate(360deg);} }
 
 /* body state while auth overlay is showing */
 body.auth-mode .app-header, body.auth-mode .bottom-nav, body.auth-mode .fab{ display:none; }
@@ -253,6 +256,11 @@ body.auth-mode{ padding-top:0; padding-bottom:0; overflow:hidden; height:100vh; 
   padding:12px 0; border-bottom:1px solid var(--border-soft);
 }
 .list-row:last-child{border-bottom:none;}
+.list-row.sold-out-row{ opacity:0.5; }
+.inv-edit-btn{
+  background:var(--cream-light); border:1px solid var(--border); color:var(--ink-soft);
+  width:30px; height:30px; border-radius:50%; font-size:13px; cursor:pointer; flex-shrink:0;
+}
 .list-thumb{
   width:46px; height:46px; border-radius:10px; object-fit:cover;
   background:var(--olive-tint); flex-shrink:0;

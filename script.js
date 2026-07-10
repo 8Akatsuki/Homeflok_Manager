@@ -22,7 +22,10 @@ const formatDateShort = (iso) => {
   return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' });
 };
 
-const todayISO = () => new Date().toISOString().slice(0, 10);
+const todayISO = () => {
+  const d = new Date();
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+};
 
 const isSameDay = (iso, targetISO) => (iso || '').slice(0, 10) === targetISO;
 
@@ -339,18 +342,12 @@ VIEW_RENDERERS.home = function renderHome() {
   // low stock: qty <= 1 and > 0 treated as low (one-of-a-kind model, so "low" = last piece)
   const lowStock = DB.products.filter(p => p.qty > 0 && p.qty <= 1).slice(0, 5);
 
-  // best sellers by qty sold
-  const soldMap = {};
-  DB.sales.forEach(s => s.items.forEach(i => { soldMap[i.productId] = (soldMap[i.productId] || 0) + i.qty; }));
-  const bestSellers = Object.entries(soldMap).sort((a, b) => b[1] - a[1]).slice(0, 3)
-    .map(([pid, qty]) => ({ product: getProduct(pid), qty })).filter(x => x.product);
-
   // monthly profit overview (last 6 months)
   const months = [];
   const now = new Date();
   for (let i = 5; i >= 0; i--) {
     const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-    const key = d.toISOString().slice(0, 7);
+    const key = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
     const label = d.toLocaleDateString('en-IN', { month: 'short' });
     const profit = DB.sales.filter(s => (s.date || '').slice(0, 7) === key).reduce((sum, s) => sum + s.profit, 0);
     months.push({ label, profit });
@@ -425,20 +422,6 @@ VIEW_RENDERERS.home = function renderHome() {
       </div>
     </div>
 
-    <div class="section-block">
-      <p class="view-eyebrow">Best Selling Pieces</p>
-      <div class="card">
-        ${bestSellers.length ? bestSellers.map(b => `
-          <div class="list-row">
-            ${b.product.image ? `<img class="list-thumb" src="${b.product.image}">` : `<div class="list-thumb placeholder">✧</div>`}
-            <div class="list-main">
-              <div class="list-title">${escapeHtml(b.product.name)}</div>
-              <div class="list-sub">${escapeHtml(b.product.category)}</div>
-            </div>
-            <span class="tag tag-olive">${b.qty} sold</span>
-          </div>`).join('') : `<p class="field-hint">Sell your first piece to see trends here.</p>`}
-      </div>
-    </div>
   `;
 };
 
@@ -488,7 +471,7 @@ VIEW_RENDERERS.inventory = function renderInventory() {
     </div>
 
     ${list.length ? list.map(p => `
-      <div class="card list-row" data-open-product="${p.id}" style="cursor:pointer;">
+      <div class="card list-row ${p.qty <= 0 ? 'sold-out-row' : ''}" data-open-product="${p.id}" style="cursor:pointer;">
         ${p.image ? `<img class="list-thumb" src="${p.image}">` : `<div class="list-thumb placeholder">✧</div>`}
         <div class="list-main">
           <div class="list-title">${escapeHtml(p.name)}</div>
@@ -498,6 +481,7 @@ VIEW_RENDERERS.inventory = function renderInventory() {
           <div class="list-value">${formatINR(p.sellPrice)}</div>
           <div class="list-value small">cost ${formatINR(p.boughtPrice)}</div>
         </div>
+        <button class="inv-edit-btn" data-edit-product="${p.id}" aria-label="Edit">✎</button>
       </div>
     `).join('') : `
       <div class="empty-state">
@@ -1506,6 +1490,13 @@ function attachViewHandlers(view) {
       if (p) productDetailModal(p);
     });
   });
+  VIEW_ROOT.querySelectorAll('[data-edit-product]').forEach(el => {
+    el.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const p = getProduct(el.dataset.editProduct);
+      if (p) productFormModal(p);
+    });
+  });
   VIEW_ROOT.querySelectorAll('[data-open-sale]').forEach(el => {
     el.addEventListener('click', () => {
       const s = DB.sales.find(x => x.id === el.dataset.openSale);
@@ -1707,17 +1698,25 @@ document.getElementById('refresh-btn').addEventListener('click', () => {
   showToast('Refreshed');
 });
 
-window.addEventListener('popstate', (e) => {
-  if (!isAuthed()) return; // let default happen on auth screens
+let allowExitOnce = false;
+
+function handlePopState(e) {
+  if (!isAuthed()) return;
   if (viewHistoryStack.length > 0) {
     const prev = viewHistoryStack.pop();
     navigate(prev, { fromBack: true, skipPush: true });
     history.pushState({ view: prev }, '', '#' + prev);
-  } else {
-    // nothing left in our stack — re-push current so the app doesn't fall out from under the user
-    history.pushState({ view: currentView }, '', '#' + currentView);
+    return;
   }
-});
+  if (allowExitOnce) { allowExitOnce = false; return; }
+  // Nothing left to go back to within the app — confirm before actually exiting.
+  history.pushState({ view: currentView }, '', '#' + currentView);
+  if (confirm('Exit Homefolk Manager? Your data is already saved on this device.')) {
+    allowExitOnce = true;
+    history.back();
+  }
+}
+window.addEventListener('popstate', handlePopState);
 
 /* ============================================================
    INIT
