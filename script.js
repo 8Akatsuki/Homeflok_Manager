@@ -263,7 +263,7 @@ function addStockMove({ date, productId, productName, type, qty, note }) {
 }
 
 function cashBalance() {
-  return DB.cashTx.reduce((sum, t) => sum + (t.type === 'in' ? t.amount : -t.amount), 0);
+  return getTotalInvestment() + totalSalesAmount() - totalExpenses() - pendingFromSalesTotal();
 }
 
 function totalInventoryValue() {
@@ -298,6 +298,14 @@ function salesOn(dateISO) { return DB.sales.filter(s => isSameDay(s.date, dateIS
 
 function pendingPaymentsTotal() {
   return DB.payments.filter(p => p.status === 'pending').reduce((s, p) => s + p.amount, 0);
+}
+
+// Only payments tied to an actual recorded sale should be subtracted from cash
+// balance — that portion of totalSalesAmount() hasn't been received yet.
+// Pending amounts added manually (not linked to a sale) were never counted in
+// totalSalesAmount() in the first place, so they're excluded from this figure.
+function pendingFromSalesTotal() {
+  return DB.payments.filter(p => p.status === 'pending' && p.saleId).reduce((s, p) => s + p.amount, 0);
 }
 
 /* ---------------------------- ROUTER ---------------------------- */
@@ -1023,16 +1031,30 @@ VIEW_RENDERERS.cashflow = function renderCashflow() {
   const cashIn = list.filter(t => t.type === 'in').reduce((s, t) => s + t.amount, 0);
   const cashOut = list.filter(t => t.type === 'out').reduce((s, t) => s + t.amount, 0);
 
+  const invested = getTotalInvestment();
+  const salesTotal = totalSalesAmount();
+  const expensesTotal = totalExpenses();
+  const pendingTotal = pendingFromSalesTotal();
+
   return `
     <p class="view-eyebrow">· Finances ·</p>
     <h1 class="view-title">Cash Flow</h1>
     <div class="sprig"></div>
 
-    <div class="stat-grid section-block">
-      <div class="stat-card"><div class="stat-label">Cash In</div><div class="stat-value positive">${formatINR(cashIn)}</div></div>
-      <div class="stat-card"><div class="stat-label">Cash Out</div><div class="stat-value negative">${formatINR(cashOut)}</div></div>
-      <div class="stat-card" style="grid-column:1/3;"><div class="stat-label">Current Balance</div><div class="stat-value">${formatINR(cashBalance())}</div></div>
+    <div class="card section-block">
+      <div class="list-row"><div class="list-main">Total Investment</div><div class="list-value">${formatINR(invested)}</div></div>
+      <div class="list-row"><div class="list-main">+ Total Sales</div><div class="list-value positive">${formatINR(salesTotal)}</div></div>
+      <div class="list-row"><div class="list-main">− Total Expenses</div><div class="list-value negative">${formatINR(expensesTotal)}</div></div>
+      ${pendingTotal > 0 ? `<div class="list-row"><div class="list-main">− Pending From Sales</div><div class="list-value negative">${formatINR(pendingTotal)}</div></div>` : ''}
+      <div class="list-row" style="border-top:1px solid var(--border-soft);margin-top:4px;padding-top:12px;"><div class="list-main" style="font-weight:600;">Cash Balance</div><div class="list-value" style="font-weight:700;font-size:16px;">${formatINR(cashBalance())}</div></div>
     </div>
+
+    <div class="stat-grid section-block">
+      <div class="stat-card"><div class="stat-label">Cash In ${cashDateFilter !== 'all' ? '(selected period)' : ''}</div><div class="stat-value positive">${formatINR(cashIn)}</div></div>
+      <div class="stat-card"><div class="stat-label">Cash Out ${cashDateFilter !== 'all' ? '(selected period)' : ''}</div><div class="stat-value negative">${formatINR(cashOut)}</div></div>
+    </div>
+
+    <p class="field-hint section-block">The ledger below is a record of individual transactions — it no longer determines your Cash Balance above, which is now calculated from Investment, Sales and Expenses instead.</p>
 
     <div class="tab-bar">
       <button data-filter="all" class="${cashDateFilter==='all'?'active':''}">All Time</button>
