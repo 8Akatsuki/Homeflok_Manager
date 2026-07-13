@@ -6,6 +6,10 @@
 /* ---------------------------- UTILITIES ---------------------------- */
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 
+const ICON_EDIT = '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>';
+const ICON_DELETE = '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16"/><path d="M10 11v6M14 11v6"/><path d="M6 7l1 13h10l1-13"/><path d="M9 7V4h6v3"/></svg>';
+const ICON_TAG = '<svg class="pt-icon" viewBox="0 0 40 24"><polygon points="14,2 38,2 38,22 14,22 2,12" fill="var(--surface)" stroke="currentColor" stroke-width="2.4" stroke-linejoin="round"/><circle cx="10.5" cy="12" r="1.8" fill="currentColor"/></svg>';
+
 const formatINR = (n) => {
   n = Number(n) || 0;
   return '₹' + n.toLocaleString('en-IN', { maximumFractionDigits: 0 });
@@ -144,6 +148,15 @@ const DEVICE_ID = (() => {
 })();
 
 let syncStatus = sb ? 'connecting' : 'unavailable'; // connecting | synced | offline | unavailable
+
+function setSyncStatus(status) {
+  syncStatus = status;
+  const dot = document.getElementById('sync-dot');
+  const label = document.getElementById('sync-label');
+  if (!dot || !label) return;
+  dot.className = 'sync-dot' + (status === 'offline' ? ' offline' : status === 'connecting' ? ' connecting' : '');
+  label.textContent = { synced: 'Synced', connecting: 'Connecting…', offline: 'Offline', unavailable: 'Local only' }[status] || 'Synced';
+}
 let pushTimer = null;
 
 function pushToCloud() {
@@ -156,11 +169,11 @@ function pushToCloud() {
         room_code: ROOM_CODE, data: payload, updated_at: new Date().toISOString()
       });
       if (error) throw error;
-      syncStatus = 'synced';
+      setSyncStatus('synced');
       localStorage.setItem('homefolk_last_sync_at', new Date().toISOString());
     } catch (e) {
       console.warn('Cloud push failed', e);
-      syncStatus = 'offline';
+      setSyncStatus('offline');
     }
     if (currentView === 'settings') refreshView();
   }, 600);
@@ -215,10 +228,10 @@ async function pullFromCloud() {
       // No shared record yet on this room — seed the cloud with whatever is on this device
       pushToCloud();
     }
-    syncStatus = 'synced';
+    setSyncStatus('synced');
   } catch (e) {
     console.warn('Cloud pull failed — continuing with local data only.', e);
-    syncStatus = 'offline';
+    setSyncStatus('offline');
   }
 }
 
@@ -232,18 +245,19 @@ function subscribeRealtime() {
       DB = mergeDB(DB, incoming);
       saveDBLocalOnly();
       localStorage.setItem('homefolk_last_sync_at', new Date().toISOString());
-      syncStatus = 'synced';
+      setSyncStatus('synced');
       if (isAuthed()) {
         refreshView();
         showToast('Updated by your teammate');
       }
     })
     .subscribe((status) => {
-      if (status === 'SUBSCRIBED') { syncStatus = 'synced'; }
+      if (status === 'SUBSCRIBED') { setSyncStatus('synced'); }
     });
 }
 
 if (sb) subscribeRealtime();
+setSyncStatus(syncStatus);
 
 /* ---------------------------- CATEGORY / CONST LISTS ---------------------------- */
 const CATEGORIES = ['Saree','Kurti','Tops','Shirts','Jeans','Dresses','Jackets','Traditional Wear','Western Wear','Accessories','Others'];
@@ -323,9 +337,11 @@ function navigate(view, opts = {}) {
 
   currentView = view;
   closeMoreSheet();
-  document.querySelectorAll('.nav-btn').forEach(b => b.classList.toggle('active', b.dataset.view === view));
   const isCoreNav = ['home','closet','inventory','sales'].includes(view);
-  if (!isCoreNav) document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.pill-nav .nav-btn[data-view]').forEach(b => b.classList.toggle('active', b.dataset.view === view));
+  const moreBtn = document.getElementById('more-btn');
+  if (moreBtn) moreBtn.classList.toggle('active', !isCoreNav);
+  positionPillIndicator(view);
   const renderer = VIEW_RENDERERS[view];
   VIEW_ROOT.innerHTML = renderer ? renderer() : '<div class="empty-state">Not found</div>';
   VIEW_ROOT.scrollTop = 0;
@@ -344,6 +360,20 @@ function navigate(view, opts = {}) {
   }
 }
 
+function positionPillIndicator(view) {
+  const indicator = document.getElementById('pill-indicator');
+  const nav = document.querySelector('.pill-nav');
+  if (!indicator || !nav) return;
+  const coreViews = ['home', 'closet', 'inventory', 'sales'];
+  const targetSelector = coreViews.includes(view) ? `.nav-btn[data-view="${view}"]` : '#more-btn';
+  const btn = nav.querySelector(targetSelector);
+  if (!btn) return;
+  const navRect = nav.getBoundingClientRect();
+  const btnRect = btn.getBoundingClientRect();
+  indicator.style.left = (btnRect.left - navRect.left + (btnRect.width - indicator.offsetWidth) / 2) + 'px';
+}
+window.addEventListener('resize', () => positionPillIndicator(currentView));
+
 function refreshView() { navigate(currentView); }
 
 function openMoreSheet() { document.getElementById('more-sheet').classList.remove('hidden'); }
@@ -355,7 +385,7 @@ document.getElementById('more-sheet').addEventListener('click', (e) => {
   const item = e.target.closest('.sheet-item');
   if (item) navigate(item.dataset.view);
 });
-document.querySelectorAll('.bottom-nav .nav-btn[data-view]').forEach(btn => {
+document.querySelectorAll('.pill-nav .nav-btn[data-view]').forEach(btn => {
   btn.addEventListener('click', () => navigate(btn.dataset.view));
 });
 
@@ -403,38 +433,71 @@ VIEW_RENDERERS.home = function renderHome() {
   }
   const maxAbs = Math.max(1, ...months.map(m => Math.abs(m.profit)));
 
+  // simple 7-point sparkline of the last 7 days' revenue for the hero card
+  const sparkDays = [];
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date(); d.setDate(d.getDate() - i);
+    const key = d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+    sparkDays.push(DB.sales.filter(s => s.date === key).reduce((sum, s) => sum + s.totalAmount, 0));
+  }
+  const sparkMax = Math.max(1, ...sparkDays);
+  const sparkPoints = sparkDays.map((v, i) => `${(i / 6 * 200).toFixed(1)},${(40 - (v / sparkMax * 34)).toFixed(1)}`).join(' ');
+
   return `
     <p class="view-eyebrow">· Timeless Finds ·</p>
-    <h1 class="view-title">Business Overview</h1>
+    <h1 class="view-title">Good ${new Date().getHours() < 12 ? 'morning' : new Date().getHours() < 17 ? 'afternoon' : 'evening'}</h1>
     <div class="sprig"></div>
 
-    <div class="stat-grid section-block">
-      <div class="stat-card"><div class="stat-label">Total Products</div><div class="stat-value">${DB.products.length}</div></div>
-      <div class="stat-card"><div class="stat-label">Total Stock Qty</div><div class="stat-value">${totalStockQty()}</div></div>
-      <div class="stat-card"><div class="stat-label">Inventory Value</div><div class="stat-value">${formatINR(totalInventoryValue())}</div></div>
-      <div class="stat-card"><div class="stat-label">Total Sales</div><div class="stat-value">${formatINR(totalSalesAmount())}</div></div>
-      <div class="stat-card"><div class="stat-label">Total Profit</div><div class="stat-value positive">${formatINR(totalProfit())}</div></div>
-      <div class="stat-card"><div class="stat-label">Cash Balance</div><div class="stat-value">${formatINR(cashBalance())}</div></div>
-    </div>
-
-    <div class="section-block">
-      <p class="view-eyebrow">Today's Summary</p>
-      <div class="today-strip">
-        <div class="today-pill"><div class="stat-label">Items Sold</div><div class="stat-value">${todayItems}</div></div>
-        <div class="today-pill"><div class="stat-label">Revenue</div><div class="stat-value">${formatINR(todayRevenue)}</div></div>
-        <div class="today-pill"><div class="stat-label">Profit</div><div class="stat-value">${formatINR(todayProfit)}</div></div>
-        <div class="today-pill"><div class="stat-label">Expenses</div><div class="stat-value">${formatINR(todayExpense)}</div></div>
+    <div class="bento section-block">
+      <div class="bento-hero swing-once">
+        <div class="bento-hero-tag">Today</div>
+        <div class="bento-hero-row">
+          <div>
+            <div class="hero-label">Revenue</div>
+            <div class="hero-value">${formatINR(todayRevenue)}</div>
+          </div>
+          <div>
+            <div class="hero-label">Profit</div>
+            <div class="hero-value accent">${formatINR(todayProfit)}</div>
+          </div>
+          <div>
+            <div class="hero-label">Items Sold</div>
+            <div class="hero-value">${todayItems}</div>
+          </div>
+        </div>
+        <svg viewBox="0 0 200 44" preserveAspectRatio="none" style="width:100%;height:36px;margin-top:14px;color:#C9D6A8;opacity:0.85;">
+          <polyline points="${sparkPoints}" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
       </div>
-    </div>
 
-    <div class="section-block">
-      <div class="section-header-row"><p class="view-eyebrow mb-0">Monthly Profit</p></div>
-      <div class="card">
-        <div class="bar-chart">
-          ${months.map(m => `
+      <div class="bento-tile">
+        <div class="stat-label">Inventory Value</div>
+        <div class="stat-value">${formatINR(totalInventoryValue())}</div>
+        <div class="list-value small" style="text-align:left;margin-top:2px;">${DB.products.length} pieces</div>
+      </div>
+      <div class="bento-tile">
+        <div class="stat-label">Cash Balance</div>
+        <div class="stat-value">${formatINR(cashBalance())}</div>
+        <div class="list-value small" style="text-align:left;margin-top:2px;">investment + sales − expenses</div>
+      </div>
+      <div class="bento-tile">
+        <div class="stat-label">Total Stock Qty</div>
+        <div class="stat-value">${totalStockQty()}</div>
+      </div>
+      <div class="bento-tile">
+        <div class="stat-label">Total Profit</div>
+        <div class="stat-value positive">${formatINR(totalProfit())}</div>
+      </div>
+
+      <div class="bento-tile wide">
+        <div class="section-header-row" style="margin-bottom:10px;">
+          <span class="stat-label mb-0">Monthly Profit</span>
+        </div>
+        <div class="bar-chart" style="height:88px;">
+          ${months.map((m, i) => `
             <div class="bar-col">
               <div class="bar-val">${m.profit >= 1000 ? Math.round(m.profit/1000) + 'k' : m.profit}</div>
-              <div class="bar ${m.profit < 0 ? 'neg' : ''}" style="height:${Math.max(6, Math.abs(m.profit) / maxAbs * 90)}px"></div>
+              <div class="bar ${m.profit < 0 ? 'neg' : ''} ${i === months.length - 1 ? 'active' : ''}" style="height:${Math.max(6, Math.abs(m.profit) / maxAbs * 60)}px"></div>
               <div class="bar-label">${m.label}</div>
             </div>`).join('')}
         </div>
@@ -457,7 +520,7 @@ VIEW_RENDERERS.home = function renderHome() {
     </div>
 
     <div class="section-block">
-      <p class="view-eyebrow">Low Stock — Last Piece</p>
+      <div class="section-header-row"><p class="view-eyebrow mb-0">Low Stock — Last Piece</p>${lowStock.length ? `<span class="tag tag-rust">${lowStock.length}</span>` : ''}</div>
       <div class="card">
         ${lowStock.length ? lowStock.map(p => `
           <div class="list-row">
@@ -526,13 +589,10 @@ VIEW_RENDERERS.inventory = function renderInventory() {
           <div class="list-title">${escapeHtml(p.name)}</div>
           <div class="list-sub">${escapeHtml(p.category)} · ${escapeHtml(p.size || '—')} · ${p.qty > 0 ? p.qty + ' in stock' : 'Sold out'}</div>
         </div>
-        <div>
-          <div class="list-value">${formatINR(p.sellPrice)}</div>
-          <div class="list-value small">cost ${formatINR(p.boughtPrice)}</div>
-        </div>
+        <div class="price-tag-chip ${p.qty <= 0 ? 'muted' : ''}">${ICON_TAG}<span>${formatINR(p.sellPrice)}</span></div>
         ${p.qty > 0
-          ? `<button class="inv-edit-btn" data-edit-product="${p.id}" aria-label="Edit">✎</button>`
-          : `<button class="inv-edit-btn inv-delete-btn" data-delete-product="${p.id}" aria-label="Delete">🗑</button>`}
+          ? `<button class="inv-edit-btn" data-edit-product="${p.id}" aria-label="Edit">${ICON_EDIT}</button>`
+          : `<button class="inv-edit-btn inv-delete-btn" data-delete-product="${p.id}" aria-label="Delete">${ICON_DELETE}</button>`}
       </div>
     `).join('') : `
       <div class="empty-state">
@@ -767,9 +827,12 @@ VIEW_RENDERERS.closet = function renderCloset() {
       ${list.map(p => `
         <div class="closet-card" data-open-product="${p.id}">
           ${p.image ? `<img class="closet-img" src="${p.image}">` : `<div class="closet-img placeholder">✧</div>`}
+          <div class="closet-tag-corner">
+            <svg viewBox="0 0 40 24"><polygon points="14,2 38,2 38,22 14,22 2,12" fill="var(--gold)" stroke="var(--ink)" stroke-width="1.5" stroke-linejoin="round"/><circle cx="10.5" cy="12" r="1.8" fill="var(--surface)"/></svg>
+            <span>${formatINR(p.sellPrice)}</span>
+          </div>
           <div class="closet-body">
             <div class="closet-name">${escapeHtml(p.name)}</div>
-            <div class="closet-price">${formatINR(p.sellPrice)}</div>
             <div class="closet-meta">${p.qty} available · ${escapeHtml(p.category)}</div>
           </div>
         </div>
@@ -1076,8 +1139,8 @@ VIEW_RENDERERS.cashflow = function renderCashflow() {
         </div>
         <div class="list-value ${t.type==='in'?'positive':'negative'}" style="color:${t.type==='in'?'var(--olive-dark)':'var(--rust)'}">${t.type==='in'?'+':'−'} ${formatINR(t.amount)}</div>
         ${t.source==='manual' ? `
-          <button class="inv-edit-btn" data-edit-cash="${t.id}" aria-label="Edit">✎</button>
-          <button class="inv-edit-btn inv-delete-btn" data-delete-cash="${t.id}" aria-label="Delete">🗑</button>
+          <button class="inv-edit-btn" data-edit-cash="${t.id}" aria-label="Edit">${ICON_EDIT}</button>
+          <button class="inv-edit-btn inv-delete-btn" data-delete-cash="${t.id}" aria-label="Delete">${ICON_DELETE}</button>
         ` : ''}
       </div>
     `).join('') : `<div class="empty-state"><span class="icon">◈</span><div class="title">No transactions</div><div class="sub">Income and expenses will show up here as you go.</div></div>`}
@@ -1175,7 +1238,7 @@ VIEW_RENDERERS.profit = function renderProfit() {
       <div class="stat-card" id="investment-card" style="position:relative;">
         <div class="stat-label">Total Investment</div>
         <div class="stat-value">${formatINR(invested)}</div>
-        <button class="stat-edit-btn" id="edit-investment-btn" aria-label="Edit investment">✎</button>
+        <button class="stat-edit-btn" id="edit-investment-btn" aria-label="Edit investment">${ICON_EDIT}</button>
         ${DB.manualInvestment !== null && DB.manualInvestment !== undefined ? `<span class="tag tag-gold" style="margin-top:6px;display:inline-block;">Manual</span>` : ''}
       </div>
       <div class="stat-card"><div class="stat-label">Total Sales</div><div class="stat-value">${formatINR(sales)}</div></div>
@@ -1453,8 +1516,8 @@ VIEW_RENDERERS.expenses = function renderExpenses() {
             <div class="list-sub">${escapeHtml(e.category === 'Other' && e.customLabel ? e.customLabel : e.category)} · ${escapeHtml(e.paymentMethod)} · ${formatDateShort(e.date)}</div>
           </div>
           <div class="list-value negative" style="margin-right:2px;">− ${formatINR(e.amount)}</div>
-          <button class="inv-edit-btn" data-edit-expense="${e.id}" aria-label="Edit">✎</button>
-          <button class="inv-edit-btn inv-delete-btn" data-delete-expense="${e.id}" aria-label="Delete">🗑</button>
+          <button class="inv-edit-btn" data-edit-expense="${e.id}" aria-label="Edit">${ICON_EDIT}</button>
+          <button class="inv-edit-btn inv-delete-btn" data-delete-expense="${e.id}" aria-label="Delete">${ICON_DELETE}</button>
         </div>
       `).join('') : `<p class="field-hint">No expenses logged yet.</p>`}
     </div>

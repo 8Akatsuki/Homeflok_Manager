@@ -4,8 +4,8 @@
   "description": "Curated thrift & vintage business manager",
   "start_url": "./index.html",
   "display": "standalone",
-  "background_color": "#F0E6D8",
-  "theme_color": "#F0E6D8",
+  "background_color": "#F4EDE0",
+  "theme_color": "#F4EDE0",
   "orientation": "portrait",
   "icons": [
     { "src": "assets/logo.jpg", "sizes": "1254x1254", "type": "image/jpeg", "purpose": "any" }

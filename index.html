@@ -4,12 +4,12 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>Homefolk Manager</title>
-<meta name="theme-color" content="#F0E6D8">
+<meta name="theme-color" content="#F4EDE0">
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="assets/logo.jpg" id="favicon-link">
 <link rel="apple-touch-icon" href="assets/logo.jpg" id="touch-icon-link">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,500;0,600;0,700;1,500&family=Jost:wght@300;400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght,SOFT@0,9..144,300..700,0..100;1,9..144,500,0..100&family=Jost:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -22,13 +22,20 @@
 <!-- ============ HEADER ============ -->
 <header class="app-header" id="app-header">
   <div class="header-inner">
-    <button class="header-icon-btn hidden" id="back-btn" aria-label="Back">‹</button>
+    <button class="header-icon-btn hidden" id="back-btn" aria-label="Back">
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg>
+    </button>
     <img src="assets/logo.jpg" alt="Homefolk" class="header-logo" id="header-logo-img">
     <div class="header-text">
-      <span class="header-title">Homefolk Manager</span>
-      <span class="header-sub">Curated Thrift &amp; Vintage Pieces</span>
+      <span class="header-title">Homefolk</span>
+      <span class="header-sub">Timeless Finds</span>
     </div>
-    <button class="header-icon-btn" id="refresh-btn" aria-label="Refresh">↻</button>
+    <div class="sync-pill" id="sync-pill" aria-label="Sync status">
+      <span class="sync-dot" id="sync-dot"></span><span id="sync-label">Synced</span>
+    </div>
+    <button class="header-icon-btn" id="refresh-btn" aria-label="Refresh">
+      <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 15.5-6.3L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15.5 6.3L3 16"/><path d="M3 21v-5h5"/></svg>
+    </button>
   </div>
 </header>
 
@@ -45,46 +52,54 @@
     <p class="sheet-eyebrow">· More ·</p>
     <div class="sheet-grid">
       <button class="sheet-item" data-view="cashflow">
-        <span class="sheet-icon">◈</span> Cash Flow
+        <svg class="sheet-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="6" width="18" height="13" rx="2.5"/><path d="M3 10h18"/><circle cx="16.5" cy="14.5" r="1.4" fill="currentColor" stroke="none"/></svg>
+        Cash Flow
       </button>
       <button class="sheet-item" data-view="profit">
-        <span class="sheet-icon">◆</span> Profit Analysis
+        <svg class="sheet-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 17l6-6 4 4 8-9"/><path d="M15 6h6v6"/></svg>
+        Profit Analysis
       </button>
       <button class="sheet-item" data-view="stock">
-        <span class="sheet-icon">↻</span> Stock Movement
+        <svg class="sheet-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h11l-3-3M20 17H9l3 3"/></svg>
+        Stock Movement
       </button>
       <button class="sheet-item" data-view="payments">
-        <span class="sheet-icon">✦</span> Payment Tracking
+        <svg class="sheet-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg>
+        Payment Tracking
       </button>
       <button class="sheet-item" data-view="expenses">
-        <span class="sheet-icon">◇</span> Expenses
+        <svg class="sheet-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 3h9l4 4v14a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Z"/><path d="M9 12h6M9 16h6"/></svg>
+        Expenses
       </button>
       <button class="sheet-item" data-view="settings">
-        <span class="sheet-icon">⚙</span> Settings &amp; Backup
+        <svg class="sheet-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 13.5a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.9 2.9l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.2a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.9-2.9l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.6-1H4a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.6-1.1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.9-2.9l.1.1a1.7 1.7 0 0 0 1.9.3H10a1.7 1.7 0 0 0 1-1.6V4a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.9 2.9l-.1.1a1.7 1.7 0 0 0-.3 1.9V10a1.7 1.7 0 0 0 1.6 1H20a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.6 1Z"/></svg>
+        Settings &amp; Backup
       </button>
       <button class="sheet-item" data-view="mydata">
-        <span class="sheet-icon">⬇</span> Download My Data
+        <svg class="sheet-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v13"/><path d="M7 11l5 5 5-5"/><path d="M4 19h16"/></svg>
+        Download My Data
       </button>
     </div>
   </div>
 </div>
 
-<!-- ============ BOTTOM NAV ============ -->
-<nav class="bottom-nav">
-  <button class="nav-btn active" data-view="home">
-    <span class="nav-icon">⌂</span><span>Home</span>
+<!-- ============ FLOATING PILL NAV ============ -->
+<nav class="pill-nav">
+  <div class="pill-indicator" id="pill-indicator"></div>
+  <button class="nav-btn active" data-view="home" aria-label="Home">
+    <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-7 9 7"/><path d="M5 10v9a1 1 0 0 0 1 1h4v-6h4v6h4a1 1 0 0 0 1-1v-9"/></svg>
   </button>
-  <button class="nav-btn" data-view="closet">
-    <span class="nav-icon">✧</span><span>Closet</span>
+  <button class="nav-btn" data-view="closet" aria-label="Closet">
+    <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8V6a2 2 0 0 1 2-2h2l1-1.5h6L16 4h2a2 2 0 0 1 2 2v2"/><path d="M4 8l3 2v10a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V10l3-2"/><path d="M9 12v3M15 12v3"/></svg>
   </button>
-  <button class="nav-btn" data-view="inventory">
-    <span class="nav-icon">▤</span><span>Inventory</span>
+  <button class="nav-btn" data-view="inventory" aria-label="Inventory">
+    <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="4.5" width="17" height="15" rx="2.5"/><path d="M3.5 9.5h17M8.5 4.5v15"/></svg>
   </button>
-  <button class="nav-btn" data-view="sales">
-    <span class="nav-icon">₹</span><span>Sales</span>
+  <button class="nav-btn" data-view="sales" aria-label="Sales">
+    <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16l-1.5 12.5a1.5 1.5 0 0 1-1.5 1.5H7a1.5 1.5 0 0 1-1.5-1.5Z"/><path d="M8.5 10.5V7a3.5 3.5 0 0 1 7 0v3.5"/></svg>
   </button>
-  <button class="nav-btn" id="more-btn">
-    <span class="nav-icon">⋯</span><span>More</span>
+  <button class="nav-btn" id="more-btn" aria-label="More">
+    <svg viewBox="0 0 24 24" width="19" height="19" fill="none"><circle cx="12" cy="12" r="1.6" fill="currentColor"/><circle cx="5.5" cy="12" r="1.6" fill="currentColor"/><circle cx="18.5" cy="12" r="1.6" fill="currentColor"/></svg>
   </button>
 </nav>
 
