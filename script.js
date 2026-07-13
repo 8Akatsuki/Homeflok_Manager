@@ -1478,19 +1478,83 @@ VIEW_RENDERERS.stock = function renderStock() {
     <button class="btn btn-outline btn-block" id="stock-adjust-btn" style="margin-bottom:18px;">+ Record Return / Adjustment</button>
 
     <div class="card">
-      ${moves.length ? `<div class="timeline">
-        ${moves.map(m => `
-          <div class="timeline-item">
-            <div class="timeline-dot ${m.type === 'out' ? 'out' : ''}"></div>
+      ${moves.length ? moves.map(m => `
+        <div class="list-row">
+          <div class="timeline-dot-standalone ${m.type === 'out' ? 'out' : ''}"></div>
+          <div class="list-main">
             <div class="timeline-text"><b>${escapeHtml(m.productName)}</b> ${m.type === 'in' ? 'added' : m.type === 'return' ? 'returned' : 'sold'} ${m.type === 'in' ? '+' : m.type === 'return' ? '+' : '−'}${m.qty}${m.note ? ' · ' + escapeHtml(m.note) : ''}</div>
             <div class="timeline-date">${formatDate(m.date)}</div>
           </div>
-        `).join('')}
-      </div>` : `<p class="field-hint">No stock movement recorded yet.</p>`}
+          <button class="inv-edit-btn" data-edit-stockmove="${m.id}" aria-label="Edit">${ICON_EDIT}</button>
+          <button class="inv-edit-btn inv-delete-btn" data-delete-stockmove="${m.id}" aria-label="Delete">${ICON_DELETE}</button>
+        </div>
+      `).join('') : `<p class="field-hint">No stock movement recorded yet.</p>`}
     </div>
+
+    ${moves.length ? `<button class="btn btn-danger btn-block" id="stock-clear-btn" style="margin-top:16px;">Clear Stock History</button>
+    <p class="field-hint text-center" style="margin-top:6px;">Clears this log only — current stock quantities in Inventory are not affected.</p>` : ''}
     <div style="height:20px"></div>
   `;
 };
+
+function stockMoveDelta(m) {
+  return m.type === 'out' ? -m.qty : m.qty; // 'in' and 'return' both add back to stock
+}
+
+function stockMoveEditModal(m) {
+  openModal(`
+    <div class="modal-header"><span class="modal-title">Edit Movement</span><button class="modal-close" data-close>✕</button></div>
+    <form id="stockedit-form">
+      <p class="field-hint" style="margin-bottom:14px;">${escapeHtml(m.productName)}</p>
+      <div class="field">
+        <label>Movement Type</label>
+        <select id="se-type">
+          <option value="in" ${m.type==='in'?'selected':''}>Added to Inventory (+ stock)</option>
+          <option value="return" ${m.type==='return'?'selected':''}>Item Returned (+ stock)</option>
+          <option value="out" ${m.type==='out'?'selected':''}>Sold / Removed (− stock)</option>
+        </select>
+      </div>
+      <div class="field-row">
+        <div class="field"><label>Quantity</label><input type="number" id="se-qty" min="1" value="${m.qty}"></div>
+        <div class="field"><label>Date</label><input type="date" id="se-date" value="${m.date}"></div>
+      </div>
+      <div class="field"><label>Note</label><input type="text" id="se-note" value="${escapeHtml(m.note || '')}" placeholder="Optional"></div>
+      <p class="field-hint">Saving will adjust this product's current stock quantity to reflect the change.</p>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-danger" id="se-delete">Delete</button>
+        <button type="submit" class="btn btn-primary">Save Changes</button>
+      </div>
+    </form>
+  `);
+  document.querySelector('[data-close]').addEventListener('click', closeModal);
+  document.getElementById('se-delete').addEventListener('click', () => deleteStockMoveWithConfirm(m));
+  document.getElementById('stockedit-form').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const newType = document.getElementById('se-type').value;
+    const newQty = Number(document.getElementById('se-qty').value) || 1;
+    const newDate = document.getElementById('se-date').value || m.date;
+    const newNote = document.getElementById('se-note').value.trim();
+
+    const p = getProduct(m.productId);
+    if (p) {
+      const oldDelta = stockMoveDelta(m);
+      const newDelta = newType === 'out' ? -newQty : newQty;
+      p.qty = p.qty - oldDelta + newDelta;
+    }
+    Object.assign(m, { type: newType, qty: newQty, date: newDate, note: newNote });
+    saveDB(); closeModal(); refreshView();
+    showToast(p ? 'Movement updated and stock adjusted' : 'Movement updated (product no longer exists)');
+  });
+}
+
+function deleteStockMoveWithConfirm(m) {
+  if (!confirm(`Delete this movement entry for "${m.productName}"? This will also reverse its effect on current stock. This cannot be undone.`)) return;
+  const p = getProduct(m.productId);
+  if (p) p.qty -= stockMoveDelta(m);
+  DB.stockMoves = DB.stockMoves.filter(x => x.id !== m.id);
+  saveDB(); closeModal(); refreshView();
+  showToast('Movement deleted');
+}
 
 function stockAdjustModal() {
   openModal(`
@@ -1945,6 +2009,22 @@ function attachViewHandlers(view) {
 
   if (view === 'stock') {
     document.getElementById('stock-adjust-btn').addEventListener('click', () => stockAdjustModal());
+    document.querySelectorAll('[data-edit-stockmove]').forEach(b => b.addEventListener('click', () => {
+      const m = DB.stockMoves.find(x => x.id === b.dataset.editStockmove);
+      if (m) stockMoveEditModal(m);
+    }));
+    document.querySelectorAll('[data-delete-stockmove]').forEach(b => b.addEventListener('click', () => {
+      const m = DB.stockMoves.find(x => x.id === b.dataset.deleteStockmove);
+      if (m) deleteStockMoveWithConfirm(m);
+    }));
+    const clearBtn = document.getElementById('stock-clear-btn');
+    if (clearBtn) clearBtn.addEventListener('click', () => {
+      if (confirm('Clear all stock movement history? This only clears the log — current stock quantities in Inventory will not change. This cannot be undone.')) {
+        DB.stockMoves = [];
+        saveDB(); refreshView();
+        showToast('Stock history cleared');
+      }
+    });
   }
 
   if (view === 'payments') {
