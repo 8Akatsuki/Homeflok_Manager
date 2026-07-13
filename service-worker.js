@@ -1,4 +1,4 @@
-const CACHE_NAME = 'homefolk-cache-v3';
+const CACHE_NAME = 'homefolk-cache-v4';
 const ASSETS = [
   './',
   './index.html',

@@ -261,6 +261,11 @@ body.auth-mode{ padding-top:0; padding-bottom:0; overflow:hidden; height:100vh; 
   background:var(--cream-light); border:1px solid var(--border); color:var(--ink-soft);
   width:30px; height:30px; border-radius:50%; font-size:13px; cursor:pointer; flex-shrink:0;
 }
+.stat-edit-btn{
+  position:absolute; top:10px; right:10px;
+  background:var(--surface); border:1px solid var(--border); color:var(--ink-soft);
+  width:26px; height:26px; border-radius:50%; font-size:11px; cursor:pointer;
+}
 .list-thumb{
   width:46px; height:46px; border-radius:10px; object-fit:cover;
   background:var(--olive-tint); flex-shrink:0;

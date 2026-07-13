@@ -89,7 +89,8 @@ function defaultDB() {
     cashTx: [],       // {id,date,type:'in'|'out',category,description,amount,source,refId}
     expenses: [],      // {id,date,category,customLabel,description,amount,paymentMethod}
     payments: [],       // {id,customerName,phone,amount,dueDate,status:'pending'|'paid',note,saleId,createdAt}
-    stockMoves: []      // {id,date,productId,productName,type:'in'|'out'|'return',qty,note}
+    stockMoves: [],      // {id,date,productId,productName,type:'in'|'out'|'return',qty,note}
+    manualInvestment: null   // number override for Total Investment, or null to use the automatic inventory-based figure
   };
 }
 
@@ -178,6 +179,9 @@ function mergeDB(local, remote) {
     (local[key] || []).forEach((item) => { if (item && item.id) map.set(item.id, item); }); // local wins on same-id conflicts
     merged[key] = Array.from(map.values());
   });
+  merged.manualInvestment = (local.manualInvestment !== null && local.manualInvestment !== undefined)
+    ? local.manualInvestment
+    : (remote.manualInvestment !== null && remote.manualInvestment !== undefined ? remote.manualInvestment : null);
   return merged;
 }
 
@@ -284,6 +288,10 @@ function totalExpenses() {
 
 function totalInvestment() {
   return DB.products.reduce((sum, p) => sum + (p.investment || 0), 0);
+}
+
+function getTotalInvestment() {
+  return (DB.manualInvestment !== null && DB.manualInvestment !== undefined) ? DB.manualInvestment : totalInvestment();
 }
 
 function salesOn(dateISO) { return DB.sales.filter(s => isSameDay(s.date, dateISO)); }
@@ -1042,41 +1050,64 @@ VIEW_RENDERERS.cashflow = function renderCashflow() {
         <div class="list-thumb placeholder" style="background:${t.type==='in'?'var(--olive-tint)':'var(--rust-tint)'};color:${t.type==='in'?'var(--olive-dark)':'var(--rust)'};">${t.type==='in'?'↓':'↑'}</div>
         <div class="list-main">
           <div class="list-title">${escapeHtml(t.description || t.category)}</div>
-          <div class="list-sub">${escapeHtml(t.category)} · ${formatDateShort(t.date)}</div>
+          <div class="list-sub">${escapeHtml(t.category)} · ${formatDateShort(t.date)}${t.source!=='manual' ? ' · auto' : ''}</div>
         </div>
         <div class="list-value ${t.type==='in'?'positive':'negative'}" style="color:${t.type==='in'?'var(--olive-dark)':'var(--rust)'}">${t.type==='in'?'+':'−'} ${formatINR(t.amount)}</div>
-        ${t.source==='manual' ? `<button class="cash-del" data-id="${t.id}" style="background:none;border:none;color:var(--ink-faint);margin-left:4px;cursor:pointer;">✕</button>` : ''}
+        ${t.source==='manual' ? `
+          <button class="inv-edit-btn" data-edit-cash="${t.id}" aria-label="Edit">✎</button>
+          <button class="inv-edit-btn inv-delete-btn" data-delete-cash="${t.id}" aria-label="Delete">🗑</button>
+        ` : ''}
       </div>
     `).join('') : `<div class="empty-state"><span class="icon">◈</span><div class="title">No transactions</div><div class="sub">Income and expenses will show up here as you go.</div></div>`}
     <div style="height:20px"></div>
   `;
 };
 
-function cashTxModal(type) {
+function cashTxModal(type, existing) {
+  const t = existing || { type, category: '', description: '', amount: '', date: todayISO() };
+  const effectiveType = existing ? existing.type : type;
   openModal(`
-    <div class="modal-header"><span class="modal-title">${type === 'in' ? 'Add Income' : 'Add Expense'}</span><button class="modal-close" data-close>✕</button></div>
+    <div class="modal-header"><span class="modal-title">${existing ? 'Edit' : ''} ${effectiveType === 'in' ? 'Income' : 'Expense'}</span><button class="modal-close" data-close>✕</button></div>
     <form id="cash-form">
-      <div class="field"><label>Description</label><input type="text" id="c-desc" placeholder="${type === 'in' ? 'e.g. Customer payment' : 'e.g. Packaging supplies'}" required></div>
-      <div class="field"><label>Category</label><input type="text" id="c-cat" placeholder="${type === 'in' ? 'e.g. Dress Sale, Other Income' : 'e.g. Packaging, Advertising'}" required></div>
+      <div class="field"><label>Description</label><input type="text" id="c-desc" value="${escapeHtml(t.description||'')}" placeholder="${effectiveType === 'in' ? 'e.g. Customer payment' : 'e.g. Packaging supplies'}" required></div>
+      <div class="field"><label>Category</label><input type="text" id="c-cat" value="${escapeHtml(t.category||'')}" placeholder="${effectiveType === 'in' ? 'e.g. Dress Sale, Other Income' : 'e.g. Packaging, Advertising'}" required></div>
       <div class="field-row">
-        <div class="field"><label>Amount (₹)</label><input type="number" id="c-amount" min="1" required></div>
-        <div class="field"><label>Date</label><input type="date" id="c-date" value="${todayISO()}"></div>
+        <div class="field"><label>Amount (₹)</label><input type="number" id="c-amount" min="1" value="${t.amount}" required></div>
+        <div class="field"><label>Date</label><input type="date" id="c-date" value="${t.date}"></div>
       </div>
-      <div class="modal-footer"><button type="submit" class="btn btn-primary btn-block">${type === 'in' ? 'Add Income' : 'Add Expense'}</button></div>
+      <div class="modal-footer">
+        ${existing ? `<button type="button" class="btn btn-danger" id="c-delete">Delete</button>` : ''}
+        <button type="submit" class="btn btn-primary btn-block">${existing ? 'Save Changes' : (effectiveType === 'in' ? 'Add Income' : 'Add Expense')}</button>
+      </div>
     </form>
   `);
   document.querySelector('[data-close]').addEventListener('click', closeModal);
+
+  if (existing) {
+    document.getElementById('c-delete').addEventListener('click', () => {
+      if (confirm('Remove this transaction?')) {
+        DB.cashTx = DB.cashTx.filter(x => x.id !== existing.id);
+        saveDB(); closeModal(); refreshView();
+        showToast('Transaction removed');
+      }
+    });
+  }
+
   document.getElementById('cash-form').addEventListener('submit', (e) => {
     e.preventDefault();
-    addCashTx({
-      date: document.getElementById('c-date').value || todayISO(),
-      type, category: document.getElementById('c-cat').value.trim(),
-      description: document.getElementById('c-desc').value.trim(),
-      amount: Number(document.getElementById('c-amount').value) || 0,
-      source: 'manual'
-    });
+    const date = document.getElementById('c-date').value || todayISO();
+    const category = document.getElementById('c-cat').value.trim();
+    const description = document.getElementById('c-desc').value.trim();
+    const amount = Number(document.getElementById('c-amount').value) || 0;
+
+    if (existing) {
+      Object.assign(existing, { date, category, description, amount });
+      showToast('Transaction updated');
+    } else {
+      addCashTx({ date, type, category, description, amount, source: 'manual' });
+      showToast(type === 'in' ? 'Income added' : 'Expense added');
+    }
     saveDB(); closeModal(); refreshView();
-    showToast(type === 'in' ? 'Income added' : 'Expense added');
   });
 }
 
@@ -1087,7 +1118,7 @@ VIEW_RENDERERS.profit = function renderProfit() {
   const gross = totalProfit();
   const opExpenses = totalExpenses();
   const net = gross - opExpenses;
-  const invested = totalInvestment();
+  const invested = getTotalInvestment();
   const sales = totalSalesAmount();
   const profitPct = sales > 0 ? (net / sales * 100) : 0;
 
@@ -1119,7 +1150,12 @@ VIEW_RENDERERS.profit = function renderProfit() {
     <div class="sprig"></div>
 
     <div class="stat-grid section-block">
-      <div class="stat-card"><div class="stat-label">Total Investment</div><div class="stat-value">${formatINR(invested)}</div></div>
+      <div class="stat-card" id="investment-card" style="position:relative;">
+        <div class="stat-label">Total Investment</div>
+        <div class="stat-value">${formatINR(invested)}</div>
+        <button class="stat-edit-btn" id="edit-investment-btn" aria-label="Edit investment">✎</button>
+        ${DB.manualInvestment !== null && DB.manualInvestment !== undefined ? `<span class="tag tag-gold" style="margin-top:6px;display:inline-block;">Manual</span>` : ''}
+      </div>
       <div class="stat-card"><div class="stat-label">Total Sales</div><div class="stat-value">${formatINR(sales)}</div></div>
       <div class="stat-card"><div class="stat-label">Gross Profit</div><div class="stat-value positive">${formatINR(gross)}</div></div>
       <div class="stat-card"><div class="stat-label">Net Profit</div><div class="stat-value ${net>=0?'positive':'negative'}">${formatINR(net)}</div></div>
@@ -1164,6 +1200,34 @@ VIEW_RENDERERS.profit = function renderProfit() {
     </div>
   `;
 };
+
+function investmentModal() {
+  const current = getTotalInvestment();
+  const isManual = DB.manualInvestment !== null && DB.manualInvestment !== undefined;
+  openModal(`
+    <div class="modal-header"><span class="modal-title">Total Investment</span><button class="modal-close" data-close>✕</button></div>
+    <p class="field-hint" style="margin-bottom:14px;">Enter the total capital you've put into the business — stock, equipment, or any other startup cost. This overrides the automatic inventory-based estimate.</p>
+    <div class="field"><label>Total Investment (₹)</label><input type="number" id="inv-amount" min="0" value="${current}"></div>
+    ${isManual ? `<p class="field-hint" style="margin-bottom:10px;">Currently set manually. You can switch back to the automatic figure any time.</p>` : ''}
+    <div class="modal-footer">
+      ${isManual ? `<button type="button" class="btn btn-outline" id="inv-reset-btn">Use Automatic</button>` : ''}
+      <button type="button" class="btn btn-primary" id="inv-save-btn">Save</button>
+    </div>
+  `, { center: true });
+  document.querySelector('[data-close]').addEventListener('click', closeModal);
+  document.getElementById('inv-save-btn').addEventListener('click', () => {
+    const val = Number(document.getElementById('inv-amount').value) || 0;
+    DB.manualInvestment = val;
+    saveDB(); closeModal(); refreshView();
+    showToast('Investment updated');
+  });
+  const resetBtn = document.getElementById('inv-reset-btn');
+  if (resetBtn) resetBtn.addEventListener('click', () => {
+    DB.manualInvestment = null;
+    saveDB(); closeModal(); refreshView();
+    showToast('Reset to automatic calculation');
+  });
+}
 
 /* ============================================================
    STOCK MOVEMENT TRACKING
@@ -1366,7 +1430,9 @@ VIEW_RENDERERS.expenses = function renderExpenses() {
             <div class="list-title">${escapeHtml(e.description || e.category)}</div>
             <div class="list-sub">${escapeHtml(e.category === 'Other' && e.customLabel ? e.customLabel : e.category)} · ${escapeHtml(e.paymentMethod)} · ${formatDateShort(e.date)}</div>
           </div>
-          <div class="list-value negative">− ${formatINR(e.amount)}</div>
+          <div class="list-value negative" style="margin-right:2px;">− ${formatINR(e.amount)}</div>
+          <button class="inv-edit-btn" data-edit-expense="${e.id}" aria-label="Edit">✎</button>
+          <button class="inv-edit-btn inv-delete-btn" data-delete-expense="${e.id}" aria-label="Delete">🗑</button>
         </div>
       `).join('') : `<p class="field-hint">No expenses logged yet.</p>`}
     </div>
@@ -1374,28 +1440,36 @@ VIEW_RENDERERS.expenses = function renderExpenses() {
   `;
 };
 
-function expenseAddModal() {
+function expenseFormModal(existing) {
+  const e = existing || { category: EXPENSE_CATEGORIES[0], customLabel: '', description: '', amount: '', date: todayISO(), paymentMethod: 'Cash' };
   openModal(`
-    <div class="modal-header"><span class="modal-title">Add Expense</span><button class="modal-close" data-close>✕</button></div>
+    <div class="modal-header"><span class="modal-title">${existing ? 'Edit Expense' : 'Add Expense'}</span><button class="modal-close" data-close>✕</button></div>
     <form id="expense-form">
       <div class="field">
         <label>Category</label>
-        <select id="ex-cat">${EXPENSE_CATEGORIES.map(c => `<option>${c}</option>`).join('')}</select>
+        <select id="ex-cat">${EXPENSE_CATEGORIES.map(c => `<option ${c===e.category?'selected':''}>${c}</option>`).join('')}</select>
       </div>
-      <div class="field" id="ex-custom-wrap" style="display:none;">
+      <div class="field" id="ex-custom-wrap" style="display:${e.category==='Other'?'block':'none'};">
         <label>Custom Label</label>
-        <input type="text" id="ex-custom" placeholder="e.g. Tailoring, Platform fees">
+        <input type="text" id="ex-custom" value="${escapeHtml(e.customLabel||'')}" placeholder="e.g. Tailoring, Platform fees">
       </div>
-      <div class="field"><label>Description</label><input type="text" id="ex-desc" placeholder="Optional detail"></div>
+      <div class="field"><label>Description</label><input type="text" id="ex-desc" value="${escapeHtml(e.description||'')}" placeholder="Optional detail"></div>
       <div class="field-row">
-        <div class="field"><label>Amount (₹)</label><input type="number" id="ex-amount" min="1" required></div>
-        <div class="field"><label>Date</label><input type="date" id="ex-date" value="${todayISO()}"></div>
+        <div class="field"><label>Amount (₹)</label><input type="number" id="ex-amount" min="1" value="${e.amount}" required></div>
+        <div class="field"><label>Date</label><input type="date" id="ex-date" value="${e.date}"></div>
       </div>
       <div class="field">
         <label>Payment Method</label>
-        <select id="ex-payment"><option>Cash</option><option>Card</option><option>Bank Transfer</option></select>
+        <select id="ex-payment">
+          <option ${e.paymentMethod==='Cash'?'selected':''}>Cash</option>
+          <option ${e.paymentMethod==='Card'?'selected':''}>Card</option>
+          <option ${e.paymentMethod==='Bank Transfer'?'selected':''}>Bank Transfer</option>
+        </select>
       </div>
-      <div class="modal-footer"><button type="submit" class="btn btn-primary btn-block">Add Expense</button></div>
+      <div class="modal-footer">
+        ${existing ? `<button type="button" class="btn btn-danger" id="ex-delete">Delete</button>` : ''}
+        <button type="submit" class="btn btn-primary btn-block">${existing ? 'Save Changes' : 'Add Expense'}</button>
+      </div>
     </form>
   `);
   document.querySelector('[data-close]').addEventListener('click', closeModal);
@@ -1403,18 +1477,45 @@ function expenseAddModal() {
   const customWrap = document.getElementById('ex-custom-wrap');
   catSelect.addEventListener('change', () => { customWrap.style.display = catSelect.value === 'Other' ? 'block' : 'none'; });
 
-  document.getElementById('expense-form').addEventListener('submit', (e) => {
-    e.preventDefault();
+  if (existing) {
+    document.getElementById('ex-delete').addEventListener('click', () => deleteExpenseWithConfirm(existing.id));
+  }
+
+  document.getElementById('expense-form').addEventListener('submit', (ev) => {
+    ev.preventDefault();
     const category = catSelect.value;
     const customLabel = document.getElementById('ex-custom').value.trim();
     const amount = Number(document.getElementById('ex-amount').value) || 0;
     const date = document.getElementById('ex-date').value || todayISO();
-    const expense = { id: uid(), date, category, customLabel, description: document.getElementById('ex-desc').value.trim(), amount, paymentMethod: document.getElementById('ex-payment').value };
-    DB.expenses.push(expense);
-    addCashTx({ date, type: 'out', category: category === 'Other' && customLabel ? customLabel : category, description: expense.description || category, amount, source: 'expense', refId: expense.id });
+    const description = document.getElementById('ex-desc').value.trim();
+    const paymentMethod = document.getElementById('ex-payment').value;
+
+    if (existing) {
+      Object.assign(existing, { category, customLabel, amount, date, description, paymentMethod });
+      const linkedTx = DB.cashTx.find(t => t.source === 'expense' && t.refId === existing.id);
+      if (linkedTx) Object.assign(linkedTx, { date, category: category === 'Other' && customLabel ? customLabel : category, description: description || category, amount });
+      showToast('Expense updated');
+    } else {
+      const expense = { id: uid(), date, category, customLabel, description, amount, paymentMethod };
+      DB.expenses.push(expense);
+      addCashTx({ date, type: 'out', category: category === 'Other' && customLabel ? customLabel : category, description: description || category, amount, source: 'expense', refId: expense.id });
+      showToast('Expense added');
+    }
     saveDB(); closeModal(); refreshView();
-    showToast('Expense added');
   });
+}
+
+function expenseAddModal() { expenseFormModal(null); }
+
+function deleteExpenseWithConfirm(id) {
+  if (confirm('Delete this expense? This cannot be undone.')) {
+    DB.expenses = DB.expenses.filter(x => x.id !== id);
+    DB.cashTx = DB.cashTx.filter(t => !(t.source === 'expense' && t.refId === id));
+    saveDB();
+    closeModal();
+    refreshView();
+    showToast('Expense deleted');
+  }
 }
 
 /* ============================================================
@@ -1586,12 +1687,21 @@ function attachViewHandlers(view) {
     document.querySelectorAll('.tab-bar button[data-filter]').forEach(b => b.addEventListener('click', () => { cashDateFilter = b.dataset.filter; refreshView(); }));
     document.getElementById('cash-add-in').addEventListener('click', () => cashTxModal('in'));
     document.getElementById('cash-add-out').addEventListener('click', () => cashTxModal('out'));
-    document.querySelectorAll('.cash-del').forEach(b => b.addEventListener('click', () => {
+    document.querySelectorAll('[data-edit-cash]').forEach(b => b.addEventListener('click', () => {
+      const t = DB.cashTx.find(x => x.id === b.dataset.editCash);
+      if (t) cashTxModal(t.type, t);
+    }));
+    document.querySelectorAll('[data-delete-cash]').forEach(b => b.addEventListener('click', () => {
       if (confirm('Remove this transaction?')) {
-        DB.cashTx = DB.cashTx.filter(t => t.id !== b.dataset.id);
+        DB.cashTx = DB.cashTx.filter(t => t.id !== b.dataset.deleteCash);
         saveDB(); refreshView();
+        showToast('Transaction removed');
       }
     }));
+  }
+
+  if (view === 'profit') {
+    document.getElementById('edit-investment-btn').addEventListener('click', () => investmentModal());
   }
 
   if (view === 'stock') {
@@ -1605,6 +1715,11 @@ function attachViewHandlers(view) {
 
   if (view === 'expenses') {
     document.getElementById('expense-add-btn').addEventListener('click', () => expenseAddModal());
+    document.querySelectorAll('[data-edit-expense]').forEach(b => b.addEventListener('click', () => {
+      const ex = DB.expenses.find(x => x.id === b.dataset.editExpense);
+      if (ex) expenseFormModal(ex);
+    }));
+    document.querySelectorAll('[data-delete-expense]').forEach(b => b.addEventListener('click', () => deleteExpenseWithConfirm(b.dataset.deleteExpense)));
   }
 
   if (view === 'settings') {
