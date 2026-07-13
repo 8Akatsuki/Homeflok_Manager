@@ -871,6 +871,7 @@ VIEW_RENDERERS.sales = function renderSales() {
           <div class="list-value">${formatINR(s.totalAmount)}</div>
           <div class="list-value small">profit ${formatINR(s.profit)}</div>
         </div>
+        <button class="inv-edit-btn inv-delete-btn" data-delete-sale="${s.id}" aria-label="Delete">${ICON_DELETE}</button>
       </div>
     `).join('') : `
       <div class="empty-state">
@@ -905,10 +906,119 @@ function saleDetailModal(s) {
     <div class="list-row"><div class="list-main" style="font-weight:600;">Total Received</div><div class="list-value">${formatINR(s.totalAmount)}</div></div>
     <div class="list-row"><div class="list-main">Profit</div><div class="list-value positive">${formatINR(s.profit)}</div></div>
     <div class="modal-footer">
-      <button class="btn btn-outline btn-block" onclick="window.print()">Print Receipt</button>
+      <button class="btn btn-primary btn-block" id="sale-print-btn">Print Invoice</button>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" id="sale-whatsapp-btn">Share via WhatsApp</button>
+      <button class="btn btn-outline" id="sale-share-btn">Share</button>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-danger btn-block" id="sale-delete-btn">Delete Sale</button>
     </div>
   `, { center: true });
   document.querySelector('[data-close]').addEventListener('click', closeModal);
+  document.getElementById('sale-print-btn').addEventListener('click', () => printInvoice(s));
+  document.getElementById('sale-whatsapp-btn').addEventListener('click', () => shareSaleWhatsApp(s));
+  document.getElementById('sale-share-btn').addEventListener('click', () => shareSaleNative(s));
+  document.getElementById('sale-delete-btn').addEventListener('click', () => deleteSaleWithConfirm(s));
+}
+
+function deleteSaleWithConfirm(sale) {
+  const msg = `Delete this sale (${formatINR(sale.totalAmount)} — ${sale.customerName || 'walk-in customer'})? This will remove it completely, reverse its Cash Flow entry, and restore the sold item(s) back to stock. This cannot be undone.`;
+  if (!confirm(msg)) return;
+
+  // restore stock for every item on the sale
+  sale.items.forEach(item => {
+    const p = getProduct(item.productId);
+    if (p) {
+      p.qty += item.qty;
+      addStockMove({ productId: p.id, productName: p.name, type: 'return', qty: item.qty, note: 'Sale deleted — restored to stock' });
+    }
+  });
+
+  // remove the cash-in entry this sale created (if it was paid, not pending)
+  DB.cashTx = DB.cashTx.filter(t => !(t.source === 'sale' && t.refId === sale.id));
+
+  // remove any pending-payment tracking entry linked to this sale
+  DB.payments = DB.payments.filter(p => p.saleId !== sale.id);
+
+  // remove the sale itself
+  DB.sales = DB.sales.filter(x => x.id !== sale.id);
+
+  saveDB();
+  closeModal();
+  refreshView();
+  showToast('Sale deleted and reversed');
+}
+
+/* ---------------------------- INVOICE: PRINT + SHARE ---------------------------- */
+function buildInvoiceText(sale) {
+  const lines = [];
+  lines.push('Homefolk — Timeless Finds');
+  lines.push('');
+  lines.push(`Date: ${formatDate(sale.date)}`);
+  lines.push(`Customer: ${sale.customerName || 'Walk-in customer'}`);
+  if (sale.customerPhone) lines.push(`Phone: ${sale.customerPhone}`);
+  lines.push('');
+  sale.items.forEach(i => lines.push(`${i.name}  ×${i.qty}  —  ${formatINR(i.qty * i.unitPrice)}`));
+  lines.push('');
+  if (sale.discountTotal) lines.push(`Discount: − ${formatINR(sale.discountTotal)}`);
+  lines.push(`Total: ${formatINR(sale.totalAmount)}`);
+  lines.push(`Payment: ${sale.paymentMethod}`);
+  lines.push('');
+  lines.push('Thank you for shopping with Homefolk!');
+  return lines.join('\n');
+}
+
+function shareSaleWhatsApp(sale) {
+  const url = 'https://wa.me/?text=' + encodeURIComponent(buildInvoiceText(sale));
+  window.open(url, '_blank');
+}
+
+async function shareSaleNative(sale) {
+  const text = buildInvoiceText(sale);
+  if (navigator.share) {
+    try { await navigator.share({ title: 'Homefolk Invoice', text }); } catch (e) { /* user cancelled */ }
+  } else if (navigator.clipboard) {
+    try { await navigator.clipboard.writeText(text); showToast('Invoice copied to clipboard'); }
+    catch (e) { showToast('Could not share — try Print instead'); }
+  } else {
+    showToast('Sharing not supported on this device — try Print instead');
+  }
+}
+
+function printInvoice(sale) {
+  const area = document.getElementById('print-invoice-area');
+  if (!area) { showToast('Print area missing'); return; }
+  area.innerHTML = `
+    <div class="invoice-sheet">
+      <div class="invoice-header">
+        <img src="${LOGO_URI}" class="invoice-logo">
+        <div>
+          <div class="invoice-brand">Homefolk</div>
+          <div class="invoice-brand-sub">Curated Thrift &amp; Vintage Pieces</div>
+        </div>
+      </div>
+      <div class="invoice-meta">
+        <div><strong>Date:</strong> ${formatDate(sale.date)}</div>
+        <div><strong>Customer:</strong> ${escapeHtml(sale.customerName || 'Walk-in customer')}</div>
+        ${sale.customerPhone ? `<div><strong>Phone:</strong> ${escapeHtml(sale.customerPhone)}</div>` : ''}
+        <div><strong>Payment:</strong> ${escapeHtml(sale.paymentMethod)}</div>
+      </div>
+      <table class="invoice-table">
+        <thead><tr><th>Item</th><th>Qty</th><th>Price</th><th>Amount</th></tr></thead>
+        <tbody>
+          ${sale.items.map(i => `<tr><td>${escapeHtml(i.name)}</td><td>${i.qty}</td><td>${formatINR(i.unitPrice)}</td><td>${formatINR(i.qty * i.unitPrice)}</td></tr>`).join('')}
+        </tbody>
+      </table>
+      <div class="invoice-totals">
+        ${sale.discountTotal ? `<div>Discount: − ${formatINR(sale.discountTotal)}</div>` : ''}
+        <div class="invoice-grand">Total: ${formatINR(sale.totalAmount)}</div>
+      </div>
+      <p class="invoice-footer">Thank you for shopping with Homefolk!</p>
+    </div>
+  `;
+  setTimeout(() => window.print(), 60);
 }
 
 function newSaleModal() {
@@ -1799,6 +1909,11 @@ function attachViewHandlers(view) {
 
   if (view === 'sales') {
     document.getElementById('new-sale-btn').addEventListener('click', () => newSaleModal());
+    document.querySelectorAll('[data-delete-sale]').forEach(b => b.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const s = DB.sales.find(x => x.id === b.dataset.deleteSale);
+      if (s) deleteSaleWithConfirm(s);
+    }));
   }
 
   if (view === 'cashflow') {
