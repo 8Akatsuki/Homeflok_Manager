@@ -1082,13 +1082,23 @@ function newSaleModal() {
 /* ============================================================
    CASH FLOW MANAGEMENT
    ============================================================ */
-let cashDateFilter = 'all'; // all | month | today
+let cashDateFilter = 'all'; // all | month | today | year
+let cashSelectedMonth = new Date().getMonth();      // 0-indexed, used when cashDateFilter === 'month'
+let cashSelectedYear = new Date().getFullYear();     // used by both 'month' (paired with month) and 'year' modes
+const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+
+function cashFlowYearOptions() {
+  const years = new Set([new Date().getFullYear()]);
+  DB.cashTx.forEach(t => { if (t.date) years.add(Number(t.date.slice(0, 4))); });
+  return Array.from(years).sort((a, b) => b - a);
+}
 
 VIEW_RENDERERS.cashflow = function renderCashflow() {
   let list = [...DB.cashTx];
   const today = todayISO();
   if (cashDateFilter === 'today') list = list.filter(t => isSameDay(t.date, today));
-  if (cashDateFilter === 'month') list = list.filter(t => isSameMonth(t.date, today));
+  if (cashDateFilter === 'month') list = list.filter(t => t.date && Number(t.date.slice(5, 7)) - 1 === cashSelectedMonth && Number(t.date.slice(0, 4)) === cashSelectedYear);
+  if (cashDateFilter === 'year') list = list.filter(t => t.date && Number(t.date.slice(0, 4)) === cashSelectedYear);
   list.sort((a, b) => b.date.localeCompare(a.date));
 
   const cashIn = list.filter(t => t.type === 'in').reduce((s, t) => s + t.amount, 0);
@@ -1098,6 +1108,7 @@ VIEW_RENDERERS.cashflow = function renderCashflow() {
   const salesTotal = totalSalesAmount();
   const expensesTotal = totalExpenses();
   const pendingTotal = pendingFromSalesTotal();
+  const yearOptions = cashFlowYearOptions();
 
   return `
     <p class="view-eyebrow">· Finances ·</p>
@@ -1121,9 +1132,31 @@ VIEW_RENDERERS.cashflow = function renderCashflow() {
 
     <div class="tab-bar">
       <button data-filter="all" class="${cashDateFilter==='all'?'active':''}">All Time</button>
-      <button data-filter="month" class="${cashDateFilter==='month'?'active':''}">This Month</button>
+      <button data-filter="month" class="${cashDateFilter==='month'?'active':''}">Month</button>
       <button data-filter="today" class="${cashDateFilter==='today'?'active':''}">Today</button>
+      <button data-filter="year" class="${cashDateFilter==='year'?'active':''}">Year</button>
     </div>
+
+    ${cashDateFilter === 'month' ? `
+    <div class="field-row" style="margin-bottom:16px;">
+      <div class="field mb-0" style="flex:1;">
+        <select id="cf-month-select">
+          ${MONTH_NAMES.map((m, i) => `<option value="${i}" ${i===cashSelectedMonth?'selected':''}>${m}</option>`).join('')}
+        </select>
+      </div>
+      <div class="field mb-0" style="flex:1;">
+        <select id="cf-month-year-select">
+          ${yearOptions.map(y => `<option value="${y}" ${y===cashSelectedYear?'selected':''}>${y}</option>`).join('')}
+        </select>
+      </div>
+    </div>` : ''}
+
+    ${cashDateFilter === 'year' ? `
+    <div class="field" style="margin-bottom:16px;">
+      <select id="cf-year-select">
+        ${yearOptions.map(y => `<option value="${y}" ${y===cashSelectedYear?'selected':''}>${y}</option>`).join('')}
+      </select>
+    </div>` : ''}
 
     <div class="field-row" style="margin-bottom:16px;">
       <button class="btn btn-olive" id="cash-add-in" style="flex:1;">+ Add Income</button>
@@ -1772,6 +1805,12 @@ function attachViewHandlers(view) {
     document.querySelectorAll('.tab-bar button[data-filter]').forEach(b => b.addEventListener('click', () => { cashDateFilter = b.dataset.filter; refreshView(); }));
     document.getElementById('cash-add-in').addEventListener('click', () => cashTxModal('in'));
     document.getElementById('cash-add-out').addEventListener('click', () => cashTxModal('out'));
+    const monthSelect = document.getElementById('cf-month-select');
+    if (monthSelect) monthSelect.addEventListener('change', (e) => { cashSelectedMonth = Number(e.target.value); refreshView(); });
+    const monthYearSelect = document.getElementById('cf-month-year-select');
+    if (monthYearSelect) monthYearSelect.addEventListener('change', (e) => { cashSelectedYear = Number(e.target.value); refreshView(); });
+    const yearSelect = document.getElementById('cf-year-select');
+    if (yearSelect) yearSelect.addEventListener('change', (e) => { cashSelectedYear = Number(e.target.value); refreshView(); });
     document.querySelectorAll('[data-edit-cash]').forEach(b => b.addEventListener('click', () => {
       const t = DB.cashTx.find(x => x.id === b.dataset.editCash);
       if (t) cashTxModal(t.type, t);
